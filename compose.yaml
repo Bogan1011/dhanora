@@ -1,0 +1,44 @@
+name: dhanora
+services:
+  database:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: dhanora
+      POSTGRES_USER: dhanora
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dhanora -d dhanora"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+  backend:
+    build: ./backend
+    environment:
+      DB_HOST: database
+      DB_NAME: dhanora
+      DB_USER: dhanora
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    depends_on:
+      database:
+        condition: service_healthy
+    command: ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+  frontend:
+    build: ./frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${DHANORA_BIND_IP:-127.0.0.1}:${DHANORA_PORT:-18080}:80"
+    restart: unless-stopped
+volumes:
+  postgres_data:
