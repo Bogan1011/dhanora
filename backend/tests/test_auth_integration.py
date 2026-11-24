@@ -76,3 +76,57 @@ def test_invalid_credentials_and_rate_limit(db_client):
     result = client.post("/api/v1/auth/login", headers={"Origin": ORIGIN}, json={"email": EMAIL, "password": PASSWORD})
     assert result.status_code == 429
     assert client.get("/api/v1/auth/me").status_code == 401
+
+
+def test_family_invite_and_rbac(db_client):
+    from app.models import FamilyInvitation
+    client, engine = db_client
+    headers = {"Origin": ORIGIN}
+    assert client.post("/api/v1/auth/login", headers=headers, json={"email": EMAIL, "password": PASSWORD}).status_code == 200
+    family_id = client.get("/api/v1/auth/me").json()["families"][0]["id"]
+    root = f"/api/v1/families/{family_id}"
+    with Session(engine) as db:
+        other_id = db.scalar(select(Family.id).where(Family.name == "Unrelated family"))
+    assert client.get(f"/api/v1/families/{other_id}/members").status_code == 404
+    owner_id = client.get("/api/v1/auth/me").json()["id"]
+    assert client.delete(root+"/members/"+owner_id, headers=headers).status_code == 403
+    r = client.post(root+"/invitations", headers=headers, json={"email":"member@example.com","role":"member"})
+    assert r.status_code == 201
+    code = r.json()["code"]
+    with Session(engine) as db:
+        assert db.scalar(select(FamilyInvitation.token_hash)) == digest(code)
+    assert "code" not in client.get(root+"/invitations").json()[0]
+    member = TestClient(app, base_url=ORIGIN)
+    payload = {"code":code,"display_name":"Test member","password":PASSWORD}
+    assert member.post("/api/v1/invitations/accept", headers=headers,json=payload).status_code == 200
+    assert member.post("/api/v1/invitations/accept", headers=headers,json=payload).status_code == 400
+    assert member.post("/api/v1/auth/login", headers=headers,json={"email":"member@example.com","password":PASSWORD}).status_code == 200
+    mid = member.get("/api/v1/auth/me").json()["id"]
+    assert member.get(root+"/members").status_code == 200
+    assert member.get(root+"/invitations").status_code == 403
+    assert member.post(root+"/invitations", headers=headers,json={"email":"x@example.com","role":"admin"}).status_code == 403
+    assert member.patch(root+"/members/"+mid,headers=headers,json={"role":"admin"}).status_code == 403
+    assert client.patch(root+"/members/"+mid,headers=headers,json={"role":"admin"}).status_code == 200
+    assert member.post(root+"/invitations",headers=headers,json={"email":"x@example.com","role":"admin"}).status_code == 403
+    assert member.delete(root+"/members/"+owner_id,headers=headers).status_code == 403
+    assert client.delete(root+"/members/"+mid,headers=headers).status_code == 200
+    assert member.get(root+"/members").status_code == 404
+    assert member.get("/api/v1/auth/me").json()["families"] == []
+
+def test_revoked_and_expired_invites(db_client):
+    from datetime import timedelta
+    from app.models import FamilyInvitation
+    from app.auth import now
+    client, engine = db_client
+    h = {"Origin": ORIGIN}
+    assert client.post("/api/v1/auth/login",headers=h,json={"email":EMAIL,"password":PASSWORD}).status_code == 200
+    root = "/api/v1/families/"+client.get("/api/v1/auth/me").json()["families"][0]["id"]
+    r = client.post(root+"/invitations",headers=h,json={"email":"invite@example.com","role":"viewer"}).json()
+    assert client.delete(root+"/invitations/"+r["id"],headers=h).status_code == 200
+    guest = TestClient(app,base_url=ORIGIN)
+    assert guest.post("/api/v1/invitations/accept",headers=h,json={"code":r["code"],"display_name":"Guest","password":PASSWORD}).status_code == 400
+    r = client.post(root+"/invitations",headers=h,json={"email":"invite@example.com","role":"viewer"}).json()
+    with Session(engine) as db, db.begin():
+        inv = db.scalar(select(FamilyInvitation).where(FamilyInvitation.token_hash==digest(r["code"])))
+        inv.expires_at=now()-timedelta(seconds=1)
+    assert guest.post("/api/v1/invitations/accept",headers=h,json={"code":r["code"],"display_name":"Guest","password":PASSWORD}).status_code == 400
