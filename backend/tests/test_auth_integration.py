@@ -130,3 +130,51 @@ def test_revoked_and_expired_invites(db_client):
         inv = db.scalar(select(FamilyInvitation).where(FamilyInvitation.token_hash==digest(r["code"])))
         inv.expires_at=now()-timedelta(seconds=1)
     assert guest.post("/api/v1/invitations/accept",headers=h,json={"code":r["code"],"display_name":"Guest","password":PASSWORD}).status_code == 400
+
+
+def test_finance_ledger_and_scope(db_client):
+    from app.finance import today
+    client,engine=db_client
+    h={"Origin":ORIGIN}
+    assert client.post("/api/v1/auth/login",headers=h,json={"email":EMAIL,"password":PASSWORD}).status_code==200
+    fid=client.get("/api/v1/auth/me").json()["families"][0]["id"]
+    root=f"/api/v1/families/{fid}/finance"
+    date=today().isoformat()
+    def account(name,kind,scope="personal"):
+        r=client.post(root+"/accounts",headers=h,json={"name":name,"kind":kind,"scope":scope,"opening_date":date})
+        assert r.status_code==201,r.text
+        return r.json()["id"]
+    bank=account("Bank","bank")
+    cash=account("Cash","cash")
+    shared=account("Shared","bank","shared")
+    def transaction(kind,amount,category,source=bank,destination=None):
+        return {"request_id":str(uuid.uuid4()),"kind":kind,"amount_paise":amount,"category":category,"account_id":source,"destination_id":destination,"occurred_on":date}
+    salary=transaction("income",5000000,"Salary")
+    expense=transaction("expense",150000,"Groceries")
+    transfer=transaction("transfer",100000,"Transfer",destination=cash)
+    for payload in (salary,expense,transfer,transfer):
+        r=client.post(root+"/transactions",headers=h,json=payload)
+        assert r.status_code==201,r.text
+    assert client.post(root+"/transactions",headers=h,json=transaction("transfer",100,"Transfer",destination=shared)).status_code==400
+    assert client.post(root+"/transactions",headers=h,json=transaction("transfer",100,"Transfer",destination=bank)).status_code==400
+    result=client.get(root+"/overview").json()
+    assert result["summary"]["liquid_paise"]=="4850000"
+    assert result["summary"]["income_paise"]=="5000000"
+    assert result["summary"]["expense_paise"]=="150000"
+    assert len(result["transactions"])==3
+    assert {a["name"]:a["balance_paise"] for a in result["accounts"]}=={"Bank":"4750000","Cash":"100000"}
+    assert client.get(root+"/overview?scope=shared").json()["summary"]["liquid_paise"]=="0"
+    tid=next(t["id"] for t in result["transactions"] if t["kind"]=="expense")
+    assert client.post(root+"/transactions/"+tid+"/void",headers=h).status_code==200
+    assert client.get(root+"/overview").json()["summary"]["expense_paise"]=="0"
+    with Session(engine) as db:
+        other=db.scalar(select(Family.id).where(Family.name=="Unrelated family"))
+    assert client.get(f"/api/v1/families/{other}/finance/overview").status_code==404
+    invitation=client.post(f"/api/v1/families/{fid}/invitations",headers=h,json={"email":"viewer@example.com","role":"viewer"}).json()
+    viewer=TestClient(app,base_url=ORIGIN)
+    assert viewer.post("/api/v1/invitations/accept",headers=h,json={"code":invitation["code"],"display_name":"Viewer","password":PASSWORD}).status_code==200
+    assert viewer.post("/api/v1/auth/login",headers=h,json={"email":"viewer@example.com","password":PASSWORD}).status_code==200
+    assert viewer.get(root+"/overview").json()["accounts"]==[]
+    assert viewer.post(root+"/transactions",headers=h,json=transaction("expense",100,"Groceries",source=bank)).status_code==404
+    assert viewer.post(root+"/transactions",headers=h,json=transaction("expense",100,"Groceries",source=shared)).status_code==403
+    assert viewer.get(root+"/overview?scope=shared").json()["accounts"][0]["id"]==shared
