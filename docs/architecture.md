@@ -2,7 +2,7 @@
 
 ## Decision 001: modular monolith first
 
-React/TypeScript web client -> same-origin Nginx -> FastAPI -> PostgreSQL. One Compose project with a private Docker network and project-scoped persistent volume. Only the web proxy binds to host loopback. No database or backend host port. Office development uses CPU only. Optional future AI adapter will call a separate local service on the home GPU; domain operations must not depend on inference.
+React/TypeScript web client -> same-origin Nginx -> FastAPI -> PostgreSQL. One Compose project with a private Docker network and project-scoped persistent volume. Only the web proxy is published, on host loopback by default. DHANORA_BIND_IP may override this for an isolated development network. No database or backend host port. Office development uses CPU only. Optional future AI adapter will call a separate local service on the home GPU; domain operations must not depend on inference.
 
 ## Modules and sequencing
 

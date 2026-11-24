@@ -1,6 +1,6 @@
 # Foundation acceptance checklist
 
-From repository root, create .env with a generated password (never commit it), then run docker compose config --quiet and docker compose up -d --build --wait --wait-timeout 180.
+From repository root, create .env with a generated password (never commit it). For isolated VMware access set DHANORA_BIND_IP to the VM private IP; leave loopback for SSH forwarding. Replace 127.0.0.1 in the curl commands below with the configured bind address. Then then run docker compose config --quiet and docker compose up -d --build --wait --wait-timeout 180.
 
 - docker compose ps: database and backend healthy, frontend running.
 - curl -fsS http://127.0.0.1:18080/health: status ok.
