@@ -14,7 +14,7 @@ def test_ready_with_migrated_database(monkeypatch):
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=__import__("sqlalchemy").pool.StaticPool)
     with engine.begin() as conn:
         conn.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(32))"))
-        conn.execute(text("INSERT INTO alembic_version VALUES ('0003_family')"))
+        conn.execute(text("INSERT INTO alembic_version VALUES ('0004_finance')"))
     monkeypatch.setattr(app.state, "engine", engine, raising=False)
     try:
         assert TestClient(app).get("/ready").status_code == 200

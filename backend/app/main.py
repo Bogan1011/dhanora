@@ -7,6 +7,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.db import make_engine
 from app.auth import router as auth_router
 from app.families import router as family_router
+from app.finance import router as finance_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -19,6 +20,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Dhanora", version="0.1.0-alpha", lifespan=lifespan)
 app.include_router(auth_router)
 app.include_router(family_router)
+app.include_router(finance_router)
 
 @app.exception_handler(RequestValidationError)
 async def validation_error(request: Request, exc: RequestValidationError):
@@ -42,7 +44,7 @@ def ready(request: Request):
         with request.app.state.engine.connect() as connection:
             connection.execute(text("SELECT 1"))
             revision = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one_or_none()
-        if revision != "0003_family":
+        if revision != "0004_finance":
             return JSONResponse(status_code=503, content={"status": "unavailable"})
     except SQLAlchemyError:
         return JSONResponse(status_code=503, content={"status": "unavailable"})
