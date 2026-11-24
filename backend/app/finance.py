@@ -1,5 +1,4 @@
 """INR ledger. One transfer row represents both linked account movements atomically."""
-from collections import defaultdict
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 from typing import Literal
@@ -141,6 +140,7 @@ def void_transaction(family_id:UUID,transaction_id:UUID,request:Request):
 @router.get("/overview")
 def overview(family_id:UUID,request:Request,scope:Scope="personal"):
     with Session(request.app.state.engine) as db:
+        db.connection(execution_options={"isolation_level":"REPEATABLE READ"})
         user,member=actor(db,request,family_id)
         accounts=db.scalars(accounts_query(family_id,user.id,scope).order_by(Account.created_at)).all()
         ids=[a.id for a in accounts]

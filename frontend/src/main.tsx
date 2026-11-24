@@ -2,6 +2,8 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { createRoot } from 'react-dom/client';
 import './style.css';
 import {FamilyPanel, JoinFamily} from './FamilyPanel';
+import {FinancePanel, type FinancePage} from './FinancePanel';
+type Page = FinancePage | 'Family';
 
 type Profile = {id: string; display_name: string; email: string; families: {id: string; name: string; role: string}[]};
 type View = 'loading' | 'login' | 'dashboard' | 'error';
@@ -15,6 +17,7 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [familyId, setFamilyId] = useState('');
   const [joining, setJoining] = useState(false);
+  const [page,setPage] = useState<Page>('Overview');
   const accept = (user: Profile) => {setProfile(user); setFamilyId(user.families[0]?.id ?? ''); setView('dashboard');};
   async function load() {
     try {
@@ -39,7 +42,7 @@ function App() {
     try {
       const r = await fetch(base + '/logout', {method:'POST'});
       if (!r.ok) throw Error('logout failed');
-      setProfile(null); setFamilyId(''); setEmail(''); setView('login');
+      setProfile(null); setFamilyId(''); setEmail(''); setPage('Overview'); setView('login');
     } catch {setMessage('Could not sign out. Retry before leaving this device.');}
     finally {setBusy(false);}
   }
@@ -60,18 +63,16 @@ function App() {
     <p className="muted auth-foot">Self-hosted · Local-first · Development alpha</p>
   </section></div>;
   const family = profile.families.find(f=>f.id===familyId);
+  const available:Page[]=['Overview','Accounts','Transactions','Family'];
   return <div className="layout">
-    <aside><div className="brand"><span className="mark">D</span>Dhanora</div><p className="muted">PRIVATE WORKSPACE</p><nav>{['Overview','Transactions','Budgets','Vehicles','Assets','Investments','Documents','Settings'].map((name,i)=><div key={name} className={i===0?'active':'locked'}>{name}{i!==0 && <small>Planned</small>}</div>)}</nav><footer>LOCAL FIRST · ALPHA</footer></aside>
-    <main><header><div><p className="eyebrow">PERSONAL FINANCE OS</p><h1>Overview</h1><p className="muted">Welcome, {profile.display_name}</p></div><button className="secondary" disabled={busy} onClick={()=>void logout()}>Sign out</button></header>
+    <aside><div className="brand"><span className="mark">D</span>Dhanora</div><p className="muted">PRIVATE WORKSPACE</p><nav>{available.map(p=><button key={p} className={'nav-button '+(page===p?'active':'')} onClick={()=>setPage(p)}>{p}</button>)}{['Budgets','Vehicles','Assets','Investments','Documents'].map(name=><div key={name} className="locked">{name}<small>Planned</small></div>)}</nav><footer>LOCAL FIRST · ALPHA</footer></aside>
+    <main><header><div><p className="eyebrow">PERSONAL FINANCE OS</p><h1>{page}</h1><p className="muted">Welcome, {profile.display_name}</p></div><button className="secondary" disabled={busy} onClick={()=>void logout()}>Sign out</button></header>
     {message && <p role="alert" className="auth-error">{message}</p>}
-    <section className="notice"><strong>Development workspace</strong><p>Authentication is active. Financial modules are not yet available. Use test data only.</p></section>
-    <section className="metrics">{['Net worth','Monthly income','Monthly expenses','Safe daily spend'].map(name=><article key={name}><p>{name}</p><h2>—</h2><span>Not configured</span></article>)}</section>
-    <section className="panel"><p className="eyebrow">YOUR WORKSPACE</p><h2>Family overview</h2>
-      <label className="family-select">Family<select value={familyId} onChange={e=>setFamilyId(e.target.value)}>{profile.families.map(f=><option key={f.id} value={f.id}>{f.name}</option>)}</select></label>
-      <div className="system"><span>Signed in as</span><strong>{profile.email}</strong></div><div className="system"><span>Family role</span><strong>{family?.role ?? 'No membership'}</strong></div><div className="system"><span>Local AI</span><strong>Disabled</strong></div>
-    </section>
-    {family && <FamilyPanel key={family.id+family.role} familyId={family.id} role={family.role} userId={profile.id}/>}
-    <section className="panel"><h2>Join another family</h2><JoinFamily signedIn onDone={()=>void load()}/></section>
+    <section className="notice"><strong>Development workspace</strong><p>Use synthetic financial data only until production security and backup validation are complete.</p></section>
+    <label className="family-select">Family workspace<select value={familyId} onChange={e=>setFamilyId(e.target.value)}>{profile.families.map(f=><option key={f.id} value={f.id}>{f.name}</option>)}</select></label>
+    {page!=='Family'&&family&&<FinancePanel key={family.id} familyId={family.id} page={page}/>}
+    {page!=='Family'&&!family&&<section className="panel"><p>No family membership. Join an invited workspace under Family.</p></section>}
+    {page==='Family'&&<>{family&&<FamilyPanel key={family.id+family.role} familyId={family.id} role={family.role} userId={profile.id}/>}<section className="panel"><h2>Join another family</h2><JoinFamily signedIn onDone={()=>void load()}/></section></>}
     </main></div>;
 }
 createRoot(document.getElementById('root')!).render(<App/>);
