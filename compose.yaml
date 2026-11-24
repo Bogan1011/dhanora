@@ -17,6 +17,7 @@ services:
   backend:
     build: ./backend
     environment:
+      APP_ORIGIN: ${DHANORA_ORIGIN:-http://localhost:18080}
       DB_HOST: database
       DB_NAME: dhanora
       DB_USER: dhanora
